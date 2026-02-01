@@ -1,3 +1,5 @@
+// Package rndc provides a client implementation for the BIND Remote Name Daemon Control (RNDC) protocol.
+// It allows Go applications to communicate with BIND DNS servers using the RNDC protocol for administrative tasks.
 package rndc
 
 import (
@@ -20,17 +22,19 @@ import (
 	"time"
 )
 
+// algosMap maps HMAC algorithm names to their corresponding RNDC protocol identifiers.
 var (
 	algosMap = map[string]int{
 		"md5":    157,
 		"sha1":   161,
-		"sha224": 162,
 		"sha256": 163,
 		"sha384": 164,
 		"sha512": 165,
 	}
 )
 
+// RnDC represents an RNDC client for communicating with BIND DNS servers.
+// It maintains connection state and handles message serialization/deserialization.
 type RnDC struct {
 	host   string
 	algo   string
@@ -40,13 +44,18 @@ type RnDC struct {
 	conn   net.Conn
 }
 
-// NewRNDCClient create rndc client
-// host - (ip, port) tuple
-// algo - HMAC algorithm: one of md5, sha1, sha224, sha256, sha384, sha512
+// NewRNDCClient creates a new RNDC client for communicating with BIND DNS servers.
+// It establishes a connection and performs the initial handshake with the server.
 //
-//	(with optional prefix 'hmac-')
+// Parameters:
+//   - host: (ip, port) tuple specifying the RNDC server address
+//   - algo: HMAC algorithm: one of md5, sha1, sha256, sha384, sha512
+//     (with optional prefix 'hmac-')
+//   - secret: HMAC secret, base64 encoded
 //
-// secret - HMAC secret, base64 encoded
+// Returns:
+//   - *RnDC: Initialized RNDC client
+//   - error: Error if initialization fails
 func NewRNDCClient(host, algo, secret string) (*RnDC, error) {
 	rand.Seed(time.Now().UnixNano())
 	c := &RnDC{
@@ -56,16 +65,12 @@ func NewRNDCClient(host, algo, secret string) (*RnDC, error) {
 	}
 
 	algo = strings.ToLower(algo)
-	if strings.HasPrefix(algo, "hmac-") {
-		algo = algo[5:]
-	}
+	algo = strings.TrimPrefix(algo, "hmac-")
 
 	switch algo {
 	case "md5":
 		c.algo = algo
 	case "sha1":
-		c.algo = algo
-	case "sha224":
 		c.algo = algo
 	case "sha256":
 		c.algo = algo
@@ -89,6 +94,11 @@ func NewRNDCClient(host, algo, secret string) (*RnDC, error) {
 	return c, nil
 }
 
+// connectLogin establishes a TCP connection to the RNDC server and performs
+// the initial login handshake to obtain a nonce for subsequent requests.
+//
+// Returns:
+//   - error: Error if connection or login fails
 func (c *RnDC) connectLogin() error {
 	conn, err := net.Dial("tcp", c.host)
 	if err != nil {
@@ -106,6 +116,16 @@ func (c *RnDC) connectLogin() error {
 	return nil
 }
 
+// command sends a command to the RNDC server and returns the response.
+// It handles the complete request/response cycle including message preparation,
+// transmission, and response deserialization.
+//
+// Parameters:
+//   - cmd: The command to send to the RNDC server
+//
+// Returns:
+//   - *CmdResponse: The response from the RNDC server
+//   - error: Error if the command fails
 func (c *RnDC) command(cmd string) (*CmdResponse, error) {
 	msg, err := c.prepMessage(cmd)
 	if err != nil {
@@ -116,13 +136,13 @@ func (c *RnDC) command(cmd string) (*CmdResponse, error) {
 		return nil, err
 	}
 	if sent != len(msg) {
-		return nil, fmt.Errorf("消息发送失败")
+		return nil, fmt.Errorf("sent %d bytes, expected %d bytes", sent, len(msg))
 	}
 
 	header := make([]byte, 8)
 	_, err = io.ReadFull(c.conn, header)
 	if err != nil {
-		return nil, errors.New("无法读取返回头信息")
+		return nil, errors.New("Read header error")
 	}
 
 	length, version, err := unpackHeader(header)
@@ -131,28 +151,47 @@ func (c *RnDC) command(cmd string) (*CmdResponse, error) {
 	}
 
 	if version != ProtocolVersion {
-		return nil, fmt.Errorf("RnDC协议版本错误, 服务器支持版本: %d, 客户端版本: %d", version, ProtocolVersion)
+		return nil, fmt.Errorf("Protocol version mismatch, response version: %d, expected version: %d", version, ProtocolVersion)
 	}
 
 	message := make([]byte, length-4)
 	_, err = io.ReadFull(c.conn, message)
 	if err != nil {
-		return nil, fmt.Errorf("无法读取返回内容: %s", err.Error())
+		return nil, fmt.Errorf("Read message error: %s", err.Error())
 	}
 
 	resp := &CmdResponse{}
 	if err = resp.DeSerialize(message); err != nil {
-		return nil, fmt.Errorf("返回内容反序列化失败: %s", err.Error())
+		return nil, fmt.Errorf("DeSerialize error: %s", err.Error())
 	}
 	return resp, nil
 }
 
+// Call sends a command to the RNDC server and returns the response.
+// This is a public wrapper around the command method.
+//
+// Parameters:
+//   - cmd: The command to send to the RNDC server
+//
+// Returns:
+//   - *CmdResponse: The response from the RNDC server
+//   - error: Error if the command fails
 func (c *RnDC) Call(cmd string) (*CmdResponse, error) {
 	return c.command(cmd)
 }
 
+// prepMessage prepares an RNDC message for transmission.
+// It creates the message structure, serializes it, calculates HMAC authentication,
+// and adds the protocol header.
+//
+// Parameters:
+//   - cmd: The command to include in the message
+//
+// Returns:
+//   - []byte: The prepared message with header
+//   - error: Error if message preparation fails
 func (c *RnDC) prepMessage(cmd string) ([]byte, error) {
-	// -------------- 1. 构造发送的消息结构 -----------------
+	// Prepare message structure
 	c.ser++
 	now := time.Now().Unix()
 
@@ -168,13 +207,13 @@ func (c *RnDC) prepMessage(cmd string) ([]byte, error) {
 		preMsg.Ctrl.Nonce = c.nonce
 	}
 
-	// -------------- 2. 计算发送消息的摘要并加密 -----------------
+	// Serialize message
 	msg, err := preMsg.Serialize()
 	if err != nil {
 		return nil, err
 	}
 
-	// 对 msg 进行校验加密
+	// Check and calculate HMAC
 	Hash := c.calculateHMAC(msg)
 	bHash := make([]byte, base64.StdEncoding.EncodedLen(len(Hash)))
 	base64.StdEncoding.Encode(bHash, Hash)
@@ -192,6 +231,13 @@ func (c *RnDC) prepMessage(cmd string) ([]byte, error) {
 	return packHeader(msg)
 }
 
+// calculateHMAC calculates the HMAC signature for a message using the configured algorithm.
+//
+// Parameters:
+//   - data: The data to calculate HMAC for
+//
+// Returns:
+//   - []byte: The calculated HMAC signature
 func (c *RnDC) calculateHMAC(data []byte) []byte {
 	var h func() hash.Hash
 
@@ -200,8 +246,6 @@ func (c *RnDC) calculateHMAC(data []byte) []byte {
 		h = md5.New
 	case "sha1":
 		h = sha1.New
-	//case "sha224":
-	//	h = sha224.New
 	case "sha256":
 		h = sha256.New
 	case "sha384":
@@ -209,7 +253,9 @@ func (c *RnDC) calculateHMAC(data []byte) []byte {
 	case "sha512":
 		h = sha512.New
 	default:
-		panic(fmt.Errorf("不支持的算法类型: %s", c.algo))
+		// panic(fmt.Errorf("Algo %s not supported", c.algo))
+		fmt.Printf("Algo %s not supported", c.algo)
+		return nil
 	}
 
 	ha := hmac.New(h, c.secret)
@@ -217,6 +263,15 @@ func (c *RnDC) calculateHMAC(data []byte) []byte {
 	return ha.Sum(nil)
 }
 
+// calculateAuthData prepares the authentication data for an RNDC message.
+// It combines the algorithm identifier with the padded HMAC hash.
+//
+// Parameters:
+//   - bHash: The base64-encoded HMAC hash
+//
+// Returns:
+//   - []byte: The prepared authentication data
+//   - error: Error if preparation fails
 func (c *RnDC) calculateAuthData(bHash []byte) ([]byte, error) {
 	var buf bytes.Buffer
 	buf.WriteByte(byte(algosMap[c.algo]))

@@ -6,69 +6,102 @@ import (
 	"fmt"
 )
 
+// serializeStringField serializes a string field into the buffer according to RNDC protocol.
+// The serialization format is: [key_len][key][flag][val_len][val]
+// where key_len is 1 byte, flag is 1 byte (set to 1), val_len is 4 bytes (big-endian).
+//
+// Parameters:
+//   - rv: The buffer to write the serialized data to
+//   - key: The field key to serialize
+//   - val: The string value to serialize
+//
+// Returns:
+//   - error: Any error that occurred during serialization
 func serializeStringField(rv *bytes.Buffer, key string, val string) error {
-	// 序列化 key
-	// 一个字节存储 key 的长度
+	// Serialize key
+	// One byte stores the length of the key
 	rv.WriteByte(byte(len(key)))
-	// 后面字节写入 key 本身的值
+	// Following bytes write the key value itself
 	rv.WriteString(key)
 
-	// 序列化 val
-	// 一个字节可能是标志位
+	// Serialize val
+	// One byte may be a flag bit
 	if err := binary.Write(rv, binary.BigEndian, uint8(1)); err != nil {
-		return fmt.Errorf("序列化失败, %s字段值的标识位写入失败: %s\n", key, err.Error())
+		return fmt.Errorf("serialization failed, flag bit write failed for %s field value: %s\n", key, err.Error())
 	}
-	// 4个字节的长度存储 val 的长度, 大端序编码(右对齐)
+	// 4 bytes store the length of val, big-endian encoding (right-aligned)
 	if err := binary.Write(rv, binary.BigEndian, uint32(len(val))); err != nil {
-		return fmt.Errorf("序列化失败, %s字段的值%s写入失败: %s\n", key, val, err.Error())
+		return fmt.Errorf("serialization failed, write failed for value %s of field %s: %s\n", val, key, err.Error())
 	}
 	rv.WriteString(val)
 	return nil
 }
 
+// serializeBytesField serializes a byte slice field into the buffer according to RNDC protocol.
+// The serialization format is: [key_len][key][flag][val_len][val]
+// where key_len is 1 byte, flag is 1 byte (set to 1), val_len is 4 bytes (big-endian).
+//
+// Parameters:
+//   - rv: The buffer to write the serialized data to
+//   - key: The field key to serialize
+//   - val: The byte slice value to serialize
+//
+// Returns:
+//   - error: Any error that occurred during serialization
 func serializeBytesField(rv *bytes.Buffer, key string, val []byte) error {
-	// 序列化 key
-	// 一个字节存储 key 的长度
+	// Serialize key
+	// One byte stores the length of the key
 	rv.WriteByte(byte(len(key)))
-	// 后面字节写入 key 本身的值
+	// Following bytes write the key value itself
 	rv.WriteString(key)
 
-	// 序列化 val
-	// 一个字节可能是标志位
+	// Serialize val
+	// One byte may be a flag bit
 	if err := binary.Write(rv, binary.BigEndian, uint8(1)); err != nil {
-		return fmt.Errorf("序列化失败, %s字段值的标识位写入失败: %s\n", key, err.Error())
+		return fmt.Errorf("serialization failed, flag bit write failed for %s field value: %s\n", key, err.Error())
 	}
-	// 4个字节的长度存储 val 的长度, 大端序编码(右对齐)
+	// 4 bytes store the length of val, big-endian encoding (right-aligned)
 	if err := binary.Write(rv, binary.BigEndian, uint32(len(val))); err != nil {
-		return fmt.Errorf("序列化失败, %s字段的值%s写入失败: %s\n", key, val, err.Error())
+		return fmt.Errorf("serialization failed, write failed for value %s of field %s: %s\n", val, key, err.Error())
 	}
 	rv.Write(val)
 	return nil
 }
 
+// serializeStructField serializes a Serializable struct field into the buffer according to RNDC protocol.
+// The serialization format is: [key_len][key][flag][val_len][val_bytes]
+// where key_len is 1 byte, flag is 1 byte (set to 2 for struct), val_len is 4 bytes (big-endian).
+//
+// Parameters:
+//   - rv: The buffer to write the serialized data to
+//   - key: The field key to serialize
+//   - val: The Serializable value to serialize
+//
+// Returns:
+//   - error: Any error that occurred during serialization
 func serializeStructField(rv *bytes.Buffer, key string, val Serializable) error {
-	// 1. 序列化 key
-	// 1.1 一个字节存储 key 的长度
+	// 1. Serialize key
+	// 1.1 One byte stores the length of the key
 	rv.WriteByte(byte(len(key)))
-	// 1.2 后面字节写入 key 本身的值
+	// 1.2 Following bytes write the key value itself
 	rv.WriteString(key)
 
-	// 2. 序列化 val
-	// 2.1 一个字节可能是标志位
+	// 2. Serialize val
+	// 2.1 One byte may be a flag bit
 	if err := binary.Write(rv, binary.BigEndian, uint8(2)); err != nil {
-		return fmt.Errorf("序列化失败, %s字段值的标识位写入失败: %s\n", key, err.Error())
+		return fmt.Errorf("serialization failed, flag bit write failed for %s field value: %s\n", key, err.Error())
 	}
-	// 2.2 序列化 val 的值
-	// 2.2.1 先拿到 val 的 bytes
+	// 2.2 Serialize the value of val
+	// 2.2.1 First get the bytes of val
 	valBytes, err := val.Serialize()
 	if err != nil {
-		return fmt.Errorf("序列化失败, %s字段的值%s写入失败: %s\n", key, val, err.Error())
+		return fmt.Errorf("serialization failed, write failed for value %s of field %s: %s\n", val, key, err.Error())
 	}
-	// 2.2.2 存储 val 的长度, 4个字节的长度存储 val 的长度, 大端序编码(右对齐)
+	// 2.2.2 Store the length of val, 4 bytes store the length of val, big-endian encoding (right-aligned)
 	if err := binary.Write(rv, binary.BigEndian, uint32(len(valBytes))); err != nil {
-		return fmt.Errorf("序列化失败, %s字段的值%s写入失败: %s\n", key, valBytes, err.Error())
+		return fmt.Errorf("serialization failed, write failed for value %s of field %s: %s\n", valBytes, key, err.Error())
 	}
-	// 2.2.1.3 存储 val 的值
+	// 2.2.1.3 Store the value of val
 	rv.Write(valBytes)
 	return nil
 }
