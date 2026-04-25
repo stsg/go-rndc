@@ -27,11 +27,11 @@ func serializeStringField(rv *bytes.Buffer, key string, val string) error {
 	// Serialize val
 	// One byte may be a flag bit
 	if err := binary.Write(rv, binary.BigEndian, uint8(1)); err != nil {
-		return fmt.Errorf("serialization failed, flag bit write failed for %s field value: %s\n", key, err.Error())
+		return fmt.Errorf("failed to write flag for field %q: %w", key, err)
 	}
 	// 4 bytes store the length of val, big-endian encoding (right-aligned)
 	if err := binary.Write(rv, binary.BigEndian, uint32(len(val))); err != nil {
-		return fmt.Errorf("serialization failed, write failed for value %s of field %s: %s\n", val, key, err.Error())
+		return fmt.Errorf("failed to write length for field %q: %w", key, err)
 	}
 	rv.WriteString(val)
 	return nil
@@ -58,11 +58,11 @@ func serializeBytesField(rv *bytes.Buffer, key string, val []byte) error {
 	// Serialize val
 	// One byte may be a flag bit
 	if err := binary.Write(rv, binary.BigEndian, uint8(1)); err != nil {
-		return fmt.Errorf("serialization failed, flag bit write failed for %s field value: %s\n", key, err.Error())
+		return fmt.Errorf("failed to write flag for field %q: %w", key, err)
 	}
 	// 4 bytes store the length of val, big-endian encoding (right-aligned)
 	if err := binary.Write(rv, binary.BigEndian, uint32(len(val))); err != nil {
-		return fmt.Errorf("serialization failed, write failed for value %s of field %s: %s\n", val, key, err.Error())
+		return fmt.Errorf("failed to write length for field %q: %w", key, err)
 	}
 	rv.Write(val)
 	return nil
@@ -89,17 +89,17 @@ func serializeStructField(rv *bytes.Buffer, key string, val Serializable) error 
 	// 2. Serialize val
 	// 2.1 One byte may be a flag bit
 	if err := binary.Write(rv, binary.BigEndian, uint8(2)); err != nil {
-		return fmt.Errorf("serialization failed, flag bit write failed for %s field value: %s\n", key, err.Error())
+		return fmt.Errorf("failed to write flag for field %q: %w", key, err)
 	}
 	// 2.2 Serialize the value of val
 	// 2.2.1 First get the bytes of val
 	valBytes, err := val.Serialize()
 	if err != nil {
-		return fmt.Errorf("serialization failed, write failed for value %s of field %s: %s\n", val, key, err.Error())
+		return fmt.Errorf("failed to serialize value for field %q: %w", key, err)
 	}
 	// 2.2.2 Store the length of val, 4 bytes store the length of val, big-endian encoding (right-aligned)
 	if err := binary.Write(rv, binary.BigEndian, uint32(len(valBytes))); err != nil {
-		return fmt.Errorf("serialization failed, write failed for value %s of field %s: %s\n", valBytes, key, err.Error())
+		return fmt.Errorf("failed to write length for struct field %q: %w", key, err)
 	}
 	// 2.2.1.3 Store the value of val
 	rv.Write(valBytes)

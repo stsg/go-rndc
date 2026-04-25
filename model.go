@@ -14,9 +14,9 @@ type Serializable interface {
 // CtrlRequest represents control information for RNDC protocol requests.
 // It contains serialization metadata and timing information for request validation.
 type CtrlRequest struct {
-	Ser   string `json:"_ser"`   // Serial number for request tracking
-	Tim   string `json:"_tim"`   // Timestamp when the request was created
-	Exp   string `json:"_exp"`   // Expiration time for the request
+	Ser   string `json:"_ser"`             // Serial number for request tracking
+	Tim   string `json:"_tim"`             // Timestamp when the request was created
+	Exp   string `json:"_exp"`             // Expiration time for the request
 	Nonce string `json:"_nonce,omitempty"` // Optional nonce for authentication
 }
 
@@ -53,7 +53,7 @@ func (c *CtrlRequest) Serialize() ([]byte, error) {
 // It contains HMAC hash and MD5 digest for request authentication.
 type AuthRequest struct {
 	Hash []byte `json:"hsha,omitempty"` // HMAC hash for authentication
-	Md5  []byte `json:"md5,omitempty"`   // MD5 digest (deprecated but supported)
+	Md5  []byte `json:"md5,omitempty"`  // MD5 digest (deprecated but supported)
 }
 
 // Serialize converts the AuthRequest into a byte array according to the RNDC protocol.
@@ -76,8 +76,8 @@ func (s *AuthRequest) Serialize() ([]byte, error) {
 // It contains authentication, control, and data components of the request.
 type CmdRequest struct {
 	Auth *AuthRequest `json:"_auth,omitempty"` // Optional authentication information
-	Ctrl *CtrlRequest `json:"_ctrl"`            // Control information for the request
-	Data *DataRequest `json:"_data"`            // Data payload for the request
+	Ctrl *CtrlRequest `json:"_ctrl"`           // Control information for the request
+	Data *DataRequest `json:"_data"`           // Data payload for the request
 }
 
 // Serialize converts the CmdRequest into a byte array according to the RNDC protocol.
@@ -155,17 +155,36 @@ func (r *CmdResponse) String() string {
 func (r *CmdResponse) DeSerialize(input []byte) error {
 	pos := 0
 	for pos < len(input) {
+		if pos+1 > len(input) {
+			return fmt.Errorf("malformed input: insufficient data for label length at position %d", pos)
+		}
 		labelLen := int(input[pos])
 		pos++
+
+		if pos+labelLen > len(input) {
+			return fmt.Errorf("malformed input: label length %d exceeds remaining data at position %d", labelLen, pos)
+		}
 		label := string(input[pos : pos+labelLen])
 		pos += labelLen
 
+		if pos+1 > len(input) {
+			return fmt.Errorf("malformed input: insufficient data for element type at position %d", pos)
+		}
 		elementType := int(input[pos])
 		pos++
 
+		if pos+4 > len(input) {
+			return fmt.Errorf("malformed input: insufficient data for data length at position %d", pos)
+		}
 		dataLen := int(binary.BigEndian.Uint32(input[pos : pos+4]))
+		if dataLen < 0 {
+			return fmt.Errorf("malformed input: negative data length %d at position %d", dataLen, pos)
+		}
 		pos += 4
 
+		if pos+dataLen > len(input) {
+			return fmt.Errorf("malformed input: data length %d exceeds remaining data at position %d", dataLen, pos)
+		}
 		data := input[pos : pos+dataLen]
 		pos += dataLen
 
@@ -176,7 +195,7 @@ func (r *CmdResponse) DeSerialize(input []byte) error {
 			}
 			err := r.Auth.DeSerialize(data)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to deserialize auth: %w", err)
 			}
 		case "_ctrl":
 			if r.Ctrl == nil {
@@ -184,7 +203,7 @@ func (r *CmdResponse) DeSerialize(input []byte) error {
 			}
 			err := r.Ctrl.DeSerialize(data)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to deserialize ctrl: %w", err)
 			}
 		case "_data":
 			if r.Data == nil {
@@ -192,7 +211,7 @@ func (r *CmdResponse) DeSerialize(input []byte) error {
 			}
 			err := r.Data.DeSerialize(data)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to deserialize data: %w", err)
 			}
 		default:
 			logger.Warn(nil, "Unknown field name: %s, field type: %d", label, elementType)
@@ -206,7 +225,7 @@ func (r *CmdResponse) DeSerialize(input []byte) error {
 // It contains HMAC hash and MD5 digest from the response.
 type AuthResponse struct {
 	Hash []byte `json:"hsha,omitempty"` // HMAC hash from the response
-	Md5  []byte `json:"md5,omitempty"`   // MD5 digest from the response
+	Md5  []byte `json:"md5,omitempty"`  // MD5 digest from the response
 }
 
 // String returns a string representation of the AuthResponse for debugging purposes.
@@ -228,17 +247,36 @@ func (r *AuthResponse) String() string {
 func (r *AuthResponse) DeSerialize(input []byte) error {
 	pos := 0
 	for pos < len(input) {
+		if pos+1 > len(input) {
+			return fmt.Errorf("malformed auth input: insufficient data for label length at position %d", pos)
+		}
 		labelLen := int(input[pos])
 		pos++
+
+		if pos+labelLen > len(input) {
+			return fmt.Errorf("malformed auth input: label length %d exceeds remaining data at position %d", labelLen, pos)
+		}
 		label := string(input[pos : pos+labelLen])
 		pos += labelLen
 
+		if pos+1 > len(input) {
+			return fmt.Errorf("malformed auth input: insufficient data for element type at position %d", pos)
+		}
 		elementType := int(input[pos])
 		pos++
 
+		if pos+4 > len(input) {
+			return fmt.Errorf("malformed auth input: insufficient data for data length at position %d", pos)
+		}
 		dataLen := int(binary.BigEndian.Uint32(input[pos : pos+4]))
+		if dataLen < 0 {
+			return fmt.Errorf("malformed auth input: negative data length %d at position %d", dataLen, pos)
+		}
 		pos += 4
 
+		if pos+dataLen > len(input) {
+			return fmt.Errorf("malformed auth input: data length %d exceeds remaining data at position %d", dataLen, pos)
+		}
 		data := input[pos : pos+dataLen]
 		pos += dataLen
 
@@ -258,10 +296,10 @@ func (r *AuthResponse) DeSerialize(input []byte) error {
 // CtrlResponse represents control information for RNDC protocol responses.
 // It contains serialization metadata and timing information from the response.
 type CtrlResponse struct {
-	Ser   string `json:"_ser"`            // Serial number from the response
-	Tim   string `json:"_tim"`            // Timestamp when the response was created
-	Exp   string `json:"_exp"`            // Expiration time from the response
-	Rpl   string `json:"_rpl"`            // Reply information from the response
+	Ser   string `json:"_ser"`             // Serial number from the response
+	Tim   string `json:"_tim"`             // Timestamp when the response was created
+	Exp   string `json:"_exp"`             // Expiration time from the response
+	Rpl   string `json:"_rpl"`             // Reply information from the response
 	Nonce string `json:"_nonce,omitempty"` // Optional nonce from the response
 }
 
@@ -284,17 +322,36 @@ func (r *CtrlResponse) String() string {
 func (r *CtrlResponse) DeSerialize(input []byte) error {
 	pos := 0
 	for pos < len(input) {
+		if pos+1 > len(input) {
+			return fmt.Errorf("malformed ctrl input: insufficient data for label length at position %d", pos)
+		}
 		labelLen := int(input[pos])
 		pos++
+
+		if pos+labelLen > len(input) {
+			return fmt.Errorf("malformed ctrl input: label length %d exceeds remaining data at position %d", labelLen, pos)
+		}
 		label := string(input[pos : pos+labelLen])
 		pos += labelLen
 
+		if pos+1 > len(input) {
+			return fmt.Errorf("malformed ctrl input: insufficient data for element type at position %d", pos)
+		}
 		elementType := int(input[pos])
 		pos++
 
+		if pos+4 > len(input) {
+			return fmt.Errorf("malformed ctrl input: insufficient data for data length at position %d", pos)
+		}
 		dataLen := int(binary.BigEndian.Uint32(input[pos : pos+4]))
+		if dataLen < 0 {
+			return fmt.Errorf("malformed ctrl input: negative data length %d at position %d", dataLen, pos)
+		}
 		pos += 4
 
+		if pos+dataLen > len(input) {
+			return fmt.Errorf("malformed ctrl input: data length %d exceeds remaining data at position %d", dataLen, pos)
+		}
 		data := input[pos : pos+dataLen]
 		pos += dataLen
 
@@ -345,17 +402,36 @@ func (r *DataResponse) String() string {
 func (r *DataResponse) DeSerialize(input []byte) error {
 	pos := 0
 	for pos < len(input) {
+		if pos+1 > len(input) {
+			return fmt.Errorf("malformed data input: insufficient data for label length at position %d", pos)
+		}
 		labelLen := int(input[pos])
 		pos++
+
+		if pos+labelLen > len(input) {
+			return fmt.Errorf("malformed data input: label length %d exceeds remaining data at position %d", labelLen, pos)
+		}
 		label := string(input[pos : pos+labelLen])
 		pos += labelLen
 
+		if pos+1 > len(input) {
+			return fmt.Errorf("malformed data input: insufficient data for element type at position %d", pos)
+		}
 		elementType := int(input[pos])
 		pos++
 
+		if pos+4 > len(input) {
+			return fmt.Errorf("malformed data input: insufficient data for data length at position %d", pos)
+		}
 		dataLen := int(binary.BigEndian.Uint32(input[pos : pos+4]))
+		if dataLen < 0 {
+			return fmt.Errorf("malformed data input: negative data length %d at position %d", dataLen, pos)
+		}
 		pos += 4
 
+		if pos+dataLen > len(input) {
+			return fmt.Errorf("malformed data input: data length %d exceeds remaining data at position %d", dataLen, pos)
+		}
 		data := input[pos : pos+dataLen]
 		pos += dataLen
 

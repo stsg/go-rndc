@@ -99,20 +99,20 @@ func SetOutput(output io.Writer) {
 	logger.SetOutput(output)
 }
 
-var globalLogLevel = InfoLevel
+var globalLogLevel uint32 = uint32(InfoLevel)
 
 // SetLevelByString sets the log level for the default logger using a string.
 // Valid strings are: "critical", "error", "warn", "warning", "debug", "info".
 func SetLevelByString(level string) {
 	logger.SetLevelByString(level)
-	globalLogLevel = StringToLevel(level)
+	atomic.StoreUint32(&globalLogLevel, uint32(StringToLevel(level)))
 }
 
 // NewLogger creates a new Logger instance with default settings.
 // The default level is InfoLevel, output is os.Stdout, and depth is 3.
 func NewLogger() *Logger {
 	return &Logger{
-		Level:  globalLogLevel,
+		Level:  Level(atomic.LoadUint32(&globalLogLevel)),
 		output: os.Stdout,
 		depth:  3,
 	}
